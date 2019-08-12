@@ -1,0 +1,7 @@
+simplytest_import.import_config_form:
+  path: '/admin/config/simplytest/import-config'
+  defaults:
+    _form: '\Drupal\simplytest_import\Form\ImportConfigForm'
+    _title: 'ImportConfigForm'
+  requirements:
+    _permission: 'administer site configuration'
