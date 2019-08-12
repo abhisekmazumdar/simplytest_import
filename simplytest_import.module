@@ -1,0 +1,24 @@
+<?php
+
+/**
+ * @file
+ * Contains simplytest_import.module.
+ */
+
+use Drupal\Core\Routing\RouteMatchInterface;
+
+/**
+ * Implements hook_help().
+ */
+function simplytest_import_help($route_name, RouteMatchInterface $route_match) {
+  switch ($route_name) {
+    // Main module help for the simplytest_import module.
+    case 'help.page.simplytest_import':
+      $output = '';
+      $output .= '<h3>' . t('About') . '</h3>';
+      $output .= '<p>' . t('Imports project data from automatically.') . '</p>';
+      return $output;
+
+    default:
+  }
+}

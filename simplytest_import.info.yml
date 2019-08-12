@@ -1,0 +1,7 @@
+name: 'simplytest import'
+description: 'Imports project data from automatically.'
+type: module
+package: Simplytest
+core: '8.x'
+dependencies:
+  - simplytest_projects
