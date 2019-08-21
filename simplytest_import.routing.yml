@@ -1,7 +1,14 @@
-simplytest_import.import_config_form:
-  path: '/admin/config/simplytest/import-config'
+simplytest_import.batch_import_controller_content:
+  path: '/simplytest/import'
   defaults:
-    _form: '\Drupal\simplytest_import\Form\ImportConfigForm'
-    _title: 'ImportConfigForm'
+    _controller: '\Drupal\simplytest_import\Controller\BatchImportController::insert'
+    _title: 'Automatic Import'
   requirements:
-    _permission: 'administer site configuration'
+    _permission: 'access content'
+simplytest_import.automatic_import_form:
+  path: '/simplytest_import/form/automatic_import'
+  defaults:
+    _form: '\Drupal\simplytest_import\Form\AutomaticImportForm'
+    _title: 'AutomaticImportForm'
+  requirements:
+    _access: 'TRUE'
