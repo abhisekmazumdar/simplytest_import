@@ -4,7 +4,7 @@ namespace Drupal\simplytest_import\Controller;
 
 use Drupal\Component\Serialization\Json;
 use Drupal\Core\Controller\ControllerBase;
-use Drupal\simplytest_import\InsertProject;
+use Drupal\simplytest_import\SimplytestImportService;
 use Drupal\simplytest_projects\DrupalUrls;
 use Drupal\simplytest_projects\Entity\SimplytestProject;
 use GuzzleHttp\Client;
@@ -38,12 +38,23 @@ class BatchImportController extends ControllerBase {
   protected $httpClient;
 
   /**
+   * @var \Drupal\simplytest_import\SimplytestImportService
+   */
+  protected $importService;
+
+  /**
    * {@inheritdoc}
    */
-  public function __construct(Connection $database, ConfigManagerInterface $config_manager, Client $http_client) {
+  public function __construct(
+    Connection $database,
+    ConfigManagerInterface $config_manager,
+    Client $http_client,
+    SimplytestImportService $importService
+  ) {
     $this->database = $database;
     $this->configManager = $config_manager;
     $this->httpClient = $http_client;
+    $this->importService = $importService;
   }
 
   /**
@@ -53,7 +64,8 @@ class BatchImportController extends ControllerBase {
     return new static(
       $container->get('database'),
       $container->get('config.manager'),
-      $container->get('http_client')
+      $container->get('http_client'),
+      $container->get('simplytest_import.import')
     );
   }
 
@@ -89,54 +101,38 @@ class BatchImportController extends ControllerBase {
    * Get all module data from drupal.org.
    */
   protected  function getAllModuleData() {
-    $operations = [];
-    $info = [];
-    $page = '';
-    $url = DrupalUrls::ORG_API . 'node.json?type=project_module';
-    $result = $this->httpClient->get($url);
-    if ($result->getStatusCode() != 200 || empty($result->getBody())) {
-      $this->log->warning('Failed to fetch initial data.');
-      return FALSE;
-    }
-    $data = Json::decode($result->getBody());
-    if ($data === NULL) {
-      $this->log->warning('Failed to fetch initial data.');
-      return FALSE;
-    }
-    while (array_key_exists('next', $data)) {
-      if ($page) {
-        $result = $this->httpClient->get($url . '&' . $page);
-        $data = Json::decode($result->getBody());
-      }
-      foreach ($data['list'] as $module) {
-        $info[] = [
-          'title' => $module['title'],
-          'shortname' => $module['field_project_machine_name'],
-          'sandbox' => $module['field_project_type'] === 'sandbox' ? 1 : 0,
+    $url = DrupalUrls::ORG_API . 'node.json?type=project_module&page=0';
+    $data = [];
+    $items = $this->importService->dataProvider($url);
+    $count = $this->importService->getTotalDataCount(
+      $this->importService->dataProvider($url, 'last')
+    );
+    for ($index = $count; $index >= 870; $index--) {
+      foreach ($items as $item) {
+        $data = [
+          'title' => $item['title'],
+          'shortname' => $item['field_project_machine_name'],
+          'sandbox' => $item['field_project_type'] === 'sandbox' ? 1 : 0,
           'type' => 'Module',
-          'creator' => $module['author']['name'],
+          'creator' => $item['author']['name'],
         ];
       }
-      $page = explode('&', $data['next'])[1];
-      if ($page === 'page=5') {
-        break;
-      }
+      $batch = [
+        'title' => $this->t('Inserting Projects'),
+        'operations' => [
+          $this->myFac($data),
+          [],
+        ],
+        'init_message' => t('Saint of the Day migration is starting.'),
+        'progress_message' => t('some thing cooking.'),
+        'finished' => $this->finished_callback(),
+      ];
+      batch_set($batch);
+      $items = $this->importService->dataProvider(
+        $url . '&page=' . $index
+      );
     }
-//    $operations[] = [InsertProject::myFac, $info];
-
-    $batch = [
-      'title' => $this->t('Inserting Projects'),
-      'operations' => [
-        $this->myFac($info),
-        [],
-      ],
-      'init_message' => t('Saint of the Day migration is starting.'),
-      'progress_message' => t('some thing cooking.'),
-      'finished' => $this->finished_callback(),
-    ];
-    batch_set($batch);
-
-    return $result;
+    return NULL;
   }
 
   /**
@@ -155,11 +151,9 @@ class BatchImportController extends ControllerBase {
     return $data;
   }
 
-  function myFac(array $info) {
-    foreach ($info as $item) {
-      $project = SimplytestProject::create($item);
-      $project->save();
-    }
+  function myFac(array $data) {
+    $project = SimplytestProject::create($data);
+    $project->save();
   }
 
   function finished_callback() {
