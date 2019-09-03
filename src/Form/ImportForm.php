@@ -5,11 +5,47 @@ namespace Drupal\simplytest_import\Form;
 use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\simplytest_import\SimplytestImportService;
+use Drupal\simplytest_projects\Entity\SimplytestProject;
+use Drupal\simplytest_projects\ProjectTypes;
+use Drupal\simplytest_projects\SimplytestProjectFetcher;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
  * Class ImportForm.
  */
 class ImportForm extends FormBase {
+
+  /**
+   * Simplytest Project Fetcher Service.
+   *
+   * @var \Drupal\simplytest_projects\SimplytestProjectFetcher
+   */
+  protected $simplytestProjectFetcher;
+
+  /**
+   * Simplytest Project Import Service.
+   *
+   * @var \Drupal\simplytest_import\SimplytestImportService
+   */
+  protected $importService;
+
+  /**
+   * {@inheritdoc}
+   */
+  public function __construct(SimplytestProjectFetcher $simplytestProjectFetcher, SimplytestImportService $simplytestImportService) {
+    $this->simplytestProjectFetcher = $simplytestProjectFetcher;
+    $this->importService = $simplytestImportService;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public static function create(ContainerInterface $container) {
+    return new static(
+      $container->get('simplytest_projects.fetcher'),
+      $container->get('simplytest_import.service')
+    );
+  }
 
   /**
    * {@inheritdoc}
@@ -25,6 +61,7 @@ class ImportForm extends FormBase {
     $form['type'] = [
       '#type' => 'checkboxes',
       '#title' => $this->t('Importing Type:'),
+      '#required' => TRUE,
       '#options' => [
         'project_module' => $this->t('Modules'),
         'project_theme' => $this->t('Themes'),
@@ -44,12 +81,44 @@ class ImportForm extends FormBase {
    */
   public function submitForm(array &$form, FormStateInterface $form_state) {
     $type = $form_state->getValue('type');
-    // Import the core data.
-    import_items([$this->getCoreData()]);
+    // Import the Drupal core data.
+    if (empty($this->simplytestProjectFetcher->searchFromProjects('drupal'))) {
+      $project = SimplytestProject::create($this->getCoreData());
+      $project->save();
+    }
     foreach ($type as $value) {
       if ($value) {
         $this->import($value);
       }
+    }
+  }
+
+  /**
+   * Import the data via batch process.
+   *
+   * @param string $type
+   *   Type of the items.
+   */
+  protected function import($type) {
+    $items = $this->importService->dataProvider($type);
+    if (!empty($items)) {
+      $operations = [];
+//      $count = $this->getTotalDataCount($items['last']);
+      $count = 5;
+      for ($index = 0; $index < $count; $index++) {
+        $operations[] = ['batch_fetch_import_process', [$index, $type]];
+      }
+      $batch = [
+        'title' => $this->t('Importing @num pages of @type',
+          [
+            '@num' => $count,
+            '@type' => str_replace('project_', '', $type),
+          ]
+        ),
+        'operations' => $operations,
+        'finished' => 'batch_finished',
+      ];
+      batch_set($batch);
     }
   }
 
@@ -61,36 +130,9 @@ class ImportForm extends FormBase {
       'title' => 'Drupal core',
       'shortname' => 'drupal',
       'sandbox' => "0",
-      'type' => 'Drupal core',
+      'type' => ProjectTypes::CORE,
       'creator' => 'dries',
     ];
-  }
-
-  /**
-   *
-   *
-   * @param $type
-   */
-  protected function import($type) {
-    $items = data_provider($type);
-    if (!empty($items)) {
-      $operations = [];
-      $count = $this->getTotalDataCount($items['last']);
-      for ($index = 0; $index < $count; $index++) {
-        $operations[] = ['batch_fetch_import_process', [$index, $type]];
-      }
-      $batch = [
-        'title' => $this->t('Importing @num @type',
-          [
-            '@num' => $count,
-            '@type' => str_replace('project_', '', $type),
-          ]
-        ),
-        'operations' => $operations,
-        'finished' => 'batch_finished',
-      ];
-      batch_set($batch);
-    }
   }
 
   /**
