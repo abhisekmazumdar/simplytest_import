@@ -5,7 +5,12 @@
  * Contains simplytest_import.module.
  */
 
+use Drupal\Component\Serialization\Json;
 use Drupal\Core\Routing\RouteMatchInterface;
+use Drupal\simplytest_import\Form\ImportForm;
+use Drupal\simplytest_import\SimplytestImportService;
+use Drupal\simplytest_projects\DrupalUrls;
+use Drupal\simplytest_projects\Entity\SimplytestProject;
 
 /**
  * Implements hook_help().
@@ -16,9 +21,105 @@ function simplytest_import_help($route_name, RouteMatchInterface $route_match) {
     case 'help.page.simplytest_import':
       $output = '';
       $output .= '<h3>' . t('About') . '</h3>';
-      $output .= '<p>' . t('Imports project data from automatically.') . '</p>';
+      $output .= '<p>' . t('Fetching data from drupal.org and importing the project automatically.') . '</p>';
       return $output;
 
     default:
   }
 }
+
+function batch_fetch_import_process($index, $type, &$context) {
+  $items = data_provider($type, $index);
+  $data = make_data_ready($items['list']);
+  import_items($data);
+  $context['results'][] = $index;
+}
+
+function batch_finished($success, $results, $operations) {
+  $messenger = \Drupal::messenger();
+  if ($success) {
+    $messenger->addMessage(t('@count results processed.', ['@count' => count($results)]));
+  }
+  else {
+    $error_operation = reset($operations);
+    $messenger->addMessage(
+      t('An error occurred while processing @operation with arguments : @args',
+        [
+          '@operation' => $error_operation[0],
+          '@args' => print_r($error_operation[0], TRUE),
+        ]
+      )
+    );
+  }
+}
+
+function data_provider($type, $page = 0) {
+  $url = DrupalUrls::ORG_API . 'node.json?type=' . $type . '&page=' . $page;
+  $result = \Drupal::service('http_client')->get($url);
+  if ($result->getStatusCode() != 200 || empty($result->getBody())) {
+    $this->log->warning('Failed to fetch initial data.');
+    return FALSE;
+  }
+  $items = Json::decode($result->getBody());
+  if ($items === NULL) {
+    $this->log->warning('Failed to fetch initial data.');
+    return FALSE;
+  }
+  return $items;
+}
+
+/**
+ * Structure the items.
+ *
+ * @param array $list
+ *   Items list.
+ *
+ * @return array
+ *   Structured data.
+ */
+function make_data_ready(array $list) {
+  $data = [];
+  foreach ($list as $item) {
+    $data[] = [
+      'title' => $item['title'],
+      'shortname' => $item['field_project_machine_name'],
+      'sandbox' => $item['field_project_type'] === 'sandbox' ? 1 : 0,
+      'type' => getItemType($item),
+      'creator' => !empty($item['author']) ? $item['author']['name'] : '',
+    ];
+  }
+  return $data;
+}
+
+/**
+ * The type of the Item.
+ *
+ * @param string $item
+ *   Get the item dataset.
+ *
+ * @return string
+ *   Type of the item.
+ */
+function getItemType($item) {
+  switch ($item['type']) {
+    case 'project_module':
+      $type = 'Module';
+      break;
+
+    case 'project_theme':
+      $type = 'Theme';
+      break;
+
+    default:
+      $type = 'Unknown Type';
+  }
+  return $type;
+}
+
+function import_items(array $data) {
+  foreach ($data as $datum) {
+    $project = SimplytestProject::create($datum);
+    $project->save();
+  }
+}
+

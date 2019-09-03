@@ -1,4 +1,0 @@
-services:
-  simplytest_import.import:
-    class: Drupal\simplytest_import\SimplytestImportService
-    arguments: ['@config.manager', '@http_client']
